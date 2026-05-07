@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ระบบจองห้องพิเศษอายุรกรรม (Cloud Sync)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap');
+        body { font-family: 'Kanit', sans-serif; background-color: #f8fafc; }
+        .glass-card { background: #ffffff; border-radius: 1rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); border: 1px solid #e2e8f0; }
+        .ward-badge { padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+        .ward-1 { background-color: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+        .ward-2 { background-color: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+        .ward-3 { background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+        
+        .loader-overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.9); z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+        .spinner { width: 45px; height: 45px; border: 4px solid #f3f3f3; border-top: 4px solid #2563eb; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-slide { animation: slideIn 0.3s ease-out forwards; }
+    </style>
+</head>
+<body class="min-h-screen pb-12">
+
+    <!-- Loading Overlay -->
+    <div id="loader" class="loader-overlay hidden">
+        <div class="spinner mb-4"></div>
+        <p class="text-blue-600 font-bold animate-pulse">กำลังประมวลผลข้อมูล...</p>
+    </div>
+
+    <!-- Navigation Header -->
+    <header class="bg-blue-700 text-white sticky top-0 z-50 shadow-lg">
+        <div class="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
+            <div class="flex items-center space-x-3 cursor-pointer" onclick="showView('dashboard')">
+                <div class="bg-white p-2 rounded-lg text-blue-700 shadow-inner"><i class="fa-solid fa-hospital-user text-xl"></i></div>
+                <div>
+                    <h1 class="text-lg font-bold leading-none">ระบบจองห้องพิเศษ</h1>
+                    <p class="text-[10px] text-blue-100 uppercase tracking-widest">แผนกอายุรกรรม</p>
+                </div>
+            </div>
+            <div class="flex space-x-2">
+                <button onclick="loadDataFromSheet()" class="p-2 hover:bg-blue-600 rounded-xl transition-all" title="รีเฟรชข้อมูล">
+                    <i id="refresh-icon" class="fa-solid fa-sync-alt"></i>
+                </button>
+                <button onclick="showView('booking')" class="bg-blue-600 border border-blue-400 px-4 py-2 rounded-xl text-sm font-bold hover:bg-blue-800 transition-all flex items-center">
+                    <i class="fa-solid fa-plus mr-2"></i> จองห้อง
+                </button>
+                <button onclick="openLoginModal()" class="bg-slate-800 px-4 py-2 rounded-xl text-sm font-bold hover:bg-slate-900 transition-all flex items-center">
+                    <i class="fa-solid fa-user-shield mr-2"></i> Admin
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto p-4 space-y-6">
+
+        <!-- DASHBOARD VIEW -->
+        <section id="view-dashboard" class="space-y-6">
+            <div id="queue-counters" class="grid grid-cols-1 md:grid-cols-3 gap-4"></div>
+            
+            <div class="glass-card overflow-hidden">
+                <div class="p-4 border-b border-slate-100 flex justify-between items-center bg-white">
+                    <h2 class="font-bold text-slate-800 flex items-center">
+                        <i class="fa-solid fa-clock-rotate-left mr-2 text-blue-600"></i>
+                        รายการคิวที่รอรับเข้า (คิวที่ยังค้างอยู่ใน Google Sheets)
+                    </h2>
+                    <span id="last-update" class="text-[10px] text-slate-400 font-medium"></span>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-slate-50 text-slate-500 font-bold uppercase text-[10px]">
+                            <tr>
+                                <th class="px-4 py-3">วันที่ Admit</th>
+                                <th class="px-4 py-3">HN / ชื่อ-สกุล</th>
+                                <th class="px-4 py-3">ต้นทาง</th>
+                                <th class="px-4 py-3">วอร์ดที่จอง</th>
+                                <th class="px-4 py-3">สิทธิ์</th>
+                                <th class="px-4 py-3">หมายเหตุ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dashboard-table-body" class="divide-y divide-slate-100 bg-white">
+                            <tr><td colspan="6" class="p-12 text-center text-slate-400">กำลังเชื่อมต่อฐานข้อมูล...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- BOOKING FORM VIEW -->
+        <section id="view-booking" class="hidden max-w-2xl mx-auto">
+            <div class="glass-card p-6 animate-slide">
+                <div class="flex items-center mb-6">
+                    <button onclick="showView('dashboard')" class="mr-4 text-slate-400 hover:text-slate-600 transition-colors"><i class="fa-solid fa-arrow-left"></i></button>
+                    <h2 class="text-xl font-bold text-slate-800">ลงทะเบียนจองห้องพิเศษ</h2>
+                </div>
+                <form id="bookingForm" class="space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">วันที่ต้องการเข้าพัก (Admit)</label>
+                            <input type="date" id="bookingDate" required class="w-full p-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">หอผู้ป่วยต้นทาง (จากวอร์ด)</label>
+                            <input list="wardList" id="currentWard" required placeholder="พิมพ์ชื่อวอร์ด..." class="w-full p-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50">
+                            <datalist id="wardList">
+                                <option value="6-MICU">6-MICU</option>
+                                <option value="6-CCU">6-CCU</option>
+                                <option value="6-ICCU">6-ICCU</option>
+                                <option value="5-อายุรกรรมชาย 1">5-อายุรกรรมชาย 1</option>
+                                <option value="5-อายุรกรรมชาย 2">5-อายุรกรรมชาย 2</option>
+                                <option value="5-พิเศษรวมอายุรกรรม">5-พิเศษรวมอายุรกรรม</option>
+                                <option value="5-พิเศษเดี่ยวอายุรกรรม ชั้น 5">5-พิเศษเดี่ยวอายุรกรรม ชั้น 5</option>
+                                <option value="4-อายุรกรรมหญิง 1">4-อายุรกรรมหญิง 1</option>
+                                <option value="4-อายุรกรรมหญิง 2">4-อายุรกรรมหญิง 2</option>
+                                <option value="4-ประสาทวิทยา">4-ประสาทวิทยา</option>
+                                <option value="3-หอผู้ป่วยแยกโรค">3-หอผู้ป่วยแยกโรค</option>
+                                <option value="3-RICU">3-RICU</option>
+                                <option value="ชีวารักษ์">ชีวารักษ์</option>
+                                <option value="พิเศษเดี่ยวธเนศวร">พิเศษเดี่ยวธเนศวร</option>
+                                <option value="OPD Case">OPD Case</option>
+                                <option value="แผนกอื่น (ลงชื่อหอผู้ป่วย ในช่อง หมายเหตุ)">แผนกอื่น (ลงชื่อหอผู้ป่วย ในช่อง หมายเหตุ)</option>                                
+                            </datalist>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">เลข HN ผู้ป่วย</label>
+                            <input type="text" id="hn" placeholder="ระบุเลข HN" required class="w-full p-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 font-mono">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">ชื่อ-นามสกุล ผู้ป่วย</label>
+                            <input type="text" id="patientName" placeholder="ชื่อ-นามสกุล" required class="w-full p-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">สิทธิ์การรักษา</label>
+                        <select id="privilege" required class="w-full p-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50">
+                            <option value="ประกันสุขภาพถ้วนหน้า (บัตรทอง)">ประกันสุขภาพถ้วนหน้า (บัตรทอง)</option>
+                            <option value="ประกันสังคม รพ.เจ้าพระยาอภัยภูเบศร">ประกันสังคม รพ.เจ้าพระยาอภัยภูเบศร</option>
+                            <option value="ประกันสังคม ต่างเครือข่าย">ประกันสังคม ต่างเครือข่าย</option>
+                            <option value="เบิกจ่ายตรง/เบิกต้นสังกัด">เบิกจ่ายตรง/เบิกต้นสังกัด</option>
+                            <option value="ชำระเงินเอง">ชำระเงินเอง</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-2">เลือกประเภทห้องพิเศษที่ต้องการ (เลือกได้หลายข้อ)</label>
+                        <div class="grid grid-cols-1 gap-2">
+                            <label class="cursor-pointer block">
+                                <input type="checkbox" name="targetWard" value="1" class="hidden peer">
+                                <div class="p-3 border border-slate-200 rounded-xl peer-checked:bg-emerald-50 peer-checked:border-emerald-500 flex justify-between items-center transition-all">
+                                    <span class="text-sm">ห้องพิเศษรวมอายุรกรรม</span>
+                                    <i class="fa-solid fa-circle-check text-slate-200 peer-checked:text-emerald-500"></i>
+                                </div>
+                            </label>
+                            <label class="cursor-pointer block">
+                                <input type="checkbox" name="targetWard" value="2" class="hidden peer">
+                                <div class="p-3 border border-slate-200 rounded-xl peer-checked:bg-blue-50 peer-checked:border-blue-500 flex justify-between items-center transition-all">
+                                    <span class="text-sm">ห้องพิเศษเดี่ยวชั้น 5</span>
+                                    <i class="fa-solid fa-circle-check text-slate-200 peer-checked:text-blue-500"></i>
+                                </div>
+                            </label>
+                            <label class="cursor-pointer block">
+                                <input type="checkbox" name="targetWard" value="3" class="hidden peer">
+                                <div class="p-3 border border-slate-200 rounded-xl peer-checked:bg-amber-50 peer-checked:border-amber-500 flex justify-between items-center transition-all">
+                                    <span class="text-sm">ห้องพิเศษเดี่ยวธเนศวร</span>
+                                    <i class="fa-solid fa-circle-check text-slate-200 peer-checked:text-amber-500"></i>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">หมายเหตุเพิ่มเติม</label>
+                        <textarea id="note" rows="2" placeholder="OPD Case แจ้งรายละเอียด หัตถการที่ทำ" class="w-full p-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"></textarea>
+                    </div>
+                    <button type="submit" class="w-full bg-blue-600 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-blue-700 active:scale-95 transition-all mt-4">
+                        <i class="fa-solid fa-paper-plane mr-2"></i> บันทึกการจองลง Google Sheets
+                    </button>
+                </form>
+            </div>
+        </section>
+
+        <!-- ADMIN VIEW -->
+        <section id="view-admin" class="hidden space-y-4">
+            <div class="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                <div>
+                    <h2 class="text-xl font-bold text-slate-800" id="admin-ward-title">หน้าจัดการหอผู้ป่วย</h2>
+                    <p class="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">โหมดเจ้าหน้าที่ห้องพิเศษ</p>
+                </div>
+                <button onclick="logoutAdmin()" class="text-rose-500 font-bold text-xs bg-rose-50 px-4 py-2 rounded-lg border border-rose-100 hover:bg-rose-100 transition-colors">ออกจากระบบ</button>
+            </div>
+            <div id="admin-queue-list" class="grid grid-cols-1 gap-3"></div>
+        </section>
+    </main>
+
+    <!-- Login Modal -->
+    <div id="loginModal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-3xl p-8 max-sm w-full shadow-2xl animate-slide">
+            <h3 class="text-xl font-bold text-center mb-6">Admin Login</h3>
+            <div class="space-y-4">
+                <select id="loginWard" class="w-full p-4 rounded-2xl border-2 border-slate-50 outline-none focus:border-blue-500 bg-slate-50 font-bold">
+                    <option value="1">ห้องพิเศษรวมอายุรกรรม</option>
+                    <option value="2">ห้องพิเศษเดี่ยวชั้น 5</option>
+                    <option value="3">ห้องพิเศษเดี่ยวธเนศวร</option>
+                </select>
+                <input type="password" id="adminPass" placeholder="รหัสผ่าน" class="w-full p-4 rounded-2xl border-2 border-slate-50 text-center outline-none focus:border-blue-500 bg-slate-50">
+                <div class="flex space-x-3">
+                    <button onclick="closeLoginModal()" class="flex-1 py-4 text-slate-400 font-bold">ยกเลิก</button>
+                    <button onclick="handleLogin()" class="flex-1 bg-blue-600 text-white rounded-2xl font-bold">ยืนยัน</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reject Reason Modal -->
+    <div id="rejectModal" class="fixed inset-0 z-[110] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl animate-slide">
+            <h3 class="text-xl font-bold text-slate-800 mb-4">ระบุเหตุผลที่ปฏิเสธ</h3>
+            <input type="hidden" id="rejectBookingId">
+            <textarea id="rejectReason" rows="3" placeholder="ระบุเหตุผล เช่น วอร์ดเต็ม / คนไข้ขอย้ายไปวอร์ดอื่น..." class="w-full p-4 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-rose-500 bg-slate-50 text-sm mb-4"></textarea>
+            <div class="flex space-x-3">
+                <button onclick="closeRejectModal()" class="flex-1 py-3 text-slate-400 font-bold text-sm">ยกเลิก</button>
+                <button onclick="confirmReject()" class="flex-1 bg-rose-600 text-white rounded-xl font-bold text-sm shadow-md">ยืนยันปฏิเสธ</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="msgBox" class="fixed bottom-6 right-6 z-[200] hidden transform translate-y-20 opacity-0 transition-all duration-300">
+        <div class="bg-slate-900 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center space-x-3">
+            <div id="msgIcon" class="w-2 h-2 rounded-full bg-emerald-400"></div>
+            <span id="msgText" class="text-sm font-medium">บันทึกเรียบร้อย</span>
+        </div>
+    </div>
+
+    <script>
+        // *** ใส่ URL ของ Google Apps Script ที่ Deploy ล่าสุดที่นี่ ***
+        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwpTGds3ePgODmzl41JyMyMh7n5zGxsBHEL9QLAyx-Du2TJ16l4UDUARGhObF-w-IDP/exec"; 
+
+        const WARD_NAMES = { "1": "ห้องพิเศษรวมอายุรกรรม", "2": "ห้องพิเศษเดี่ยวชั้น 5", "3": "ห้องพิเศษเดี่ยวธเนศวร" };
+        const ADMIN_KEYS = { "1": "PP01234", "2": "PP51234", "3": "PM1234" };
+
+        let bookings = [];
+        let currentAdminWard = null;
+
+        window.onload = () => { loadDataFromSheet(); };
+
+        function setLoader(show) { document.getElementById('loader').classList.toggle('hidden', !show); }
+
+        async function loadDataFromSheet() {
+            const icon = document.getElementById('refresh-icon');
+            icon.classList.add('fa-spin');
+            try {
+                const response = await fetch(`${SCRIPT_URL}?t=${Date.now()}`);
+                bookings = await response.json();
+                renderDashboard();
+                if (currentAdminWard) renderAdminView();
+                document.getElementById('last-update').innerText = "อัปเดตล่าสุด: " + new Date().toLocaleTimeString();
+            } catch (err) {
+                showMessage("เชื่อมต่อฐานข้อมูลไม่ได้", "error");
+            } finally { icon.classList.remove('fa-spin'); }
+        }
+
+        function showMessage(text, type = 'success') {
+            const box = document.getElementById('msgBox');
+            const icon = document.getElementById('msgIcon');
+            document.getElementById('msgText').innerText = text;
+            icon.className = type === 'success' ? 'w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'w-2 h-2 rounded-full bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.8)]';
+            box.classList.remove('hidden');
+            setTimeout(() => box.classList.remove('translate-y-20', 'opacity-0'), 10);
+            setTimeout(() => {
+                box.classList.add('translate-y-20', 'opacity-0');
+                setTimeout(() => box.classList.add('hidden'), 300);
+            }, 3000);
+        }
+
+        function showView(viewName) {
+            ['view-dashboard', 'view-booking', 'view-admin'].forEach(id => document.getElementById(id).classList.add('hidden'));
+            document.getElementById(`view-${viewName}`).classList.remove('hidden');
+            window.scrollTo(0,0);
+        }
+
+        function renderDashboard() {
+            const pending = bookings.filter(b => b.status === 'Pending');
+            
+            // Counter Cards
+            document.getElementById('queue-counters').innerHTML = [1,2,3].map(wid => {
+                const count = pending.filter(b => 
+                    b.targetWards.includes(String(wid)) && 
+                    (!b.rejectedBy || !b.rejectedBy.includes(WARD_NAMES[wid]))
+                ).length;
+                const colors = wid==1?'emerald':wid==2?'blue':'amber';
+                return `
+                    <div class="glass-card p-5 border-l-4 border-${colors}-500">
+                        <p class="text-[10px] text-slate-400 font-bold uppercase mb-1">${WARD_NAMES[wid]}</p>
+                        <p class="text-3xl font-black text-slate-800">${count}</p>
+                    </div>
+                `;
+            }).join('');
+
+            // Dashboard Table
+            const tbody = document.getElementById('dashboard-table-body');
+            const sorted = pending.sort((a,b) => new Date(a.bookingDate) - new Date(b.bookingDate));
+
+            if(sorted.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="p-16 text-center text-slate-400 italic">ไม่มีรายการคิวรอ</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = sorted.map(b => {
+                let rejStr = "";
+                if (b.rejectedBy && b.rejectedBy.length > 0) {
+                    rejStr = `<div class="mt-1 text-[9px] text-rose-400 font-bold italic">ข้ามโดย: ${b.rejectedBy.join(', ')}</div>`;
+                }
+
+                return `
+                    <tr class="hover:bg-slate-50">
+                        <td class="px-4 py-3">
+                            <div class="text-xs font-bold text-slate-700">${new Date(b.bookingDate).toLocaleDateString('th-TH')}</div>
+                            <div class="text-[9px] text-slate-400">จองเมื่อ: ${new Date(b.createdAt).toLocaleDateString('th-TH')}</div>
+                        </td>
+                        <td class="px-4 py-3">
+                            <div class="text-xs font-bold text-blue-700">${b.hn}</div>
+                            <div class="text-xs text-slate-800 font-medium">${b.patientName}</div>
+                        </td>
+                        <td class="px-4 py-3"><span class="text-[10px] bg-slate-100 px-2 py-1 rounded font-bold">${b.currentWard}</span></td>
+                        <td class="px-4 py-3">
+                            <div class="flex flex-wrap gap-1">
+                                ${b.targetWards.map(wid => {
+                                    const isRejected = b.rejectedBy && b.rejectedBy.includes(WARD_NAMES[wid]);
+                                    return `<span class="ward-badge ward-${wid} ${isRejected ? 'opacity-30 line-through' : ''}">${WARD_NAMES[wid]}</span>`;
+                                }).join('')}
+                            </div>
+                            ${rejStr}
+                        </td>
+                        <td class="px-4 py-3 text-[11px] text-slate-600">${b.privilege}</td>
+                        <td class="px-4 py-3 text-[11px] text-slate-500">${b.note || '-'}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        document.getElementById('bookingForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const targetWards = Array.from(document.querySelectorAll('input[name="targetWard"]:checked')).map(el => el.value);
+            if (targetWards.length === 0) return showMessage("โปรดเลือกวอร์ดที่ต้องการ!", "error");
+
+            setLoader(true);
+            const payload = {
+                action: 'addBooking',
+                id: 'BK-' + Date.now(),
+                createdAt: new Date().toISOString(),
+                bookingDate: document.getElementById('bookingDate').value,
+                currentWard: document.getElementById('currentWard').value,
+                hn: document.getElementById('hn').value,
+                patientName: document.getElementById('patientName').value,
+                privilege: document.getElementById('privilege').value,
+                targetWards: targetWards,
+                note: document.getElementById('note').value
+            };
+
+            try {
+                await fetch(SCRIPT_URL, { method: 'POST', body: JSON.stringify(payload) });
+                showMessage("บันทึกข้อมูลเรียบร้อยแล้ว");
+                e.target.reset();
+                await loadDataFromSheet();
+                showView('dashboard');
+            } catch (err) { showMessage("เกิดข้อผิดพลาด", "error"); }
+            finally { setLoader(false); }
+        };
+
+        function openLoginModal() { document.getElementById('loginModal').classList.remove('hidden'); }
+        function closeLoginModal() { document.getElementById('loginModal').classList.add('hidden'); }
+        function handleLogin() {
+            const ward = document.getElementById('loginWard').value;
+            if (document.getElementById('adminPass').value === ADMIN_KEYS[ward]) {
+                currentAdminWard = ward;
+                closeLoginModal();
+                showView('admin');
+                renderAdminView();
+            } else showMessage("รหัสผ่านไม่ถูกต้อง", "error");
+        }
+        function logoutAdmin() { currentAdminWard = null; showView('dashboard'); }
+
+        function renderAdminView() {
+            document.getElementById('admin-ward-title').innerText = "หอผู้ป่วย: " + WARD_NAMES[currentAdminWard];
+            const list = document.getElementById('admin-queue-list');
+            const filtered = bookings.filter(b => 
+                b.status === 'Pending' && 
+                b.targetWards.includes(String(currentAdminWard)) &&
+                (!b.rejectedBy || !b.rejectedBy.includes(WARD_NAMES[currentAdminWard]))
+            ).sort((a,b) => new Date(a.bookingDate) - new Date(b.bookingDate));
+
+            if(filtered.length === 0) {
+                list.innerHTML = `<div class="p-20 text-center text-slate-400 italic">ไม่มีรายการรอรับเข้า</div>`;
+                return;
+            }
+
+            list.innerHTML = filtered.map(b => `
+                <div class="glass-card p-5 flex flex-col md:flex-row justify-between md:items-center gap-4 animate-slide">
+                    <div class="flex-1">
+                        <div class="text-[10px] font-bold text-blue-600 mb-1">HN: ${b.hn} | Admit: ${new Date(b.bookingDate).toLocaleDateString('th-TH')}</div>
+                        <h3 class="text-lg font-bold text-slate-800">${b.patientName}</h3>
+                        <p class="text-xs text-slate-500">ต้นทาง: ${b.currentWard} | สิทธิ์: ${b.privilege}</p>
+                        ${b.note ? `<p class="mt-2 text-[11px] text-slate-400 italic">หมายเหตุ: ${b.note}</p>` : ''}
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="approveBooking('${b.id}')" class="flex-1 bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold text-sm shadow-md">รับเข้าวอร์ด</button>
+                        <button onclick="openRejectModal('${b.id}')" class="flex-1 bg-white text-rose-600 border border-rose-200 px-4 py-2 rounded-xl font-bold text-sm">ปฏิเสธ</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function approveBooking(id) {
+            setLoader(true);
+            try {
+                await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'approveBooking', id: id, approvedWard: WARD_NAMES[currentAdminWard] })
+                });
+                showMessage("รับคนไข้เข้าวอร์ดเรียบร้อย");
+                await loadDataFromSheet();
+            } catch (err) { showMessage("เกิดข้อผิดพลาด", "error"); }
+            finally { setLoader(false); }
+        }
+
+        function openRejectModal(id) {
+            document.getElementById('rejectBookingId').value = id;
+            document.getElementById('rejectReason').value = '';
+            document.getElementById('rejectModal').classList.remove('hidden');
+        }
+        function closeRejectModal() { document.getElementById('rejectModal').classList.add('hidden'); }
+
+        async function confirmReject() {
+            const id = document.getElementById('rejectBookingId').value;
+            const reason = document.getElementById('rejectReason').value;
+            if(!reason) return showMessage("กรุณาใส่เหตุผล", "error");
+
+            setLoader(true);
+            try {
+                await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'rejectBooking', id: id, rejectedWard: WARD_NAMES[currentAdminWard], reason: reason })
+                });
+                showMessage("ปฏิเสธเรียบร้อย");
+                closeRejectModal();
+                await loadDataFromSheet();
+            } catch (err) { showMessage("เกิดข้อผิดพลาด", "error"); }
+            finally { setLoader(false); }
+        }
+    </script>
+</body>
+</html>

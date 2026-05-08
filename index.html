@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ระบบจองห้องพิเศษอายุรกรรม (Ward Privacy)</title>
+    <!-- CSS Libraries -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap');
+        
+        :root {
+            --primary-blue: #1d4ed8;
+            --secondary-slate: #64748b;
+        }
+
+        body { 
+            font-family: 'Kanit', sans-serif; 
+            background-color: #f1f5f9; 
+            color: #1e293b;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .glass-card { 
+            background: #ffffff; 
+            border-radius: 1.25rem; 
+            box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.07); 
+            border: 1px solid rgba(226, 232, 240, 0.8); 
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        /* Loader Animation */
+        .loader-overlay { 
+            position: fixed; 
+            inset: 0; 
+            background: rgba(255,255,255,0.85); 
+            z-index: 1000; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            backdrop-filter: blur(8px); 
+        }
+
+        .spinner { 
+            width: 50px; height: 50px; 
+            border: 4px dashed #1d4ed8; 
+            border-radius: 50%; 
+            animation: spin 1.5s cubic-bezier(0.68, -0.55, 0.27, 1.55) infinite; 
+        }
+
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .animate-slide-up { animation: slideUp 0.4s ease-out forwards; }
+        
+        /* Mobile Table Optimization */
+        @media (max-width: 768px) {
+            .responsive-table thead { display: none; }
+            .responsive-table tr { 
+                display: block; 
+                margin-bottom: 1rem; 
+                background: white; 
+                border-radius: 1rem; 
+                padding: 1rem; 
+                border: 1px solid #e2e8f0;
+            }
+            .responsive-table td { 
+                display: flex; 
+                justify-content: space-between; 
+                padding: 0.5rem 0; 
+                border: none;
+                text-align: right;
+            }
+            .responsive-table td::before { 
+                content: attr(data-label); 
+                font-weight: 700; 
+                text-align: left; 
+                color: #64748b;
+                font-size: 0.75rem;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen pb-20">
+
+    <!-- Loading State -->
+    <div id="loader" class="loader-overlay hidden">
+        <div class="spinner mb-6"></div>
+        <div class="text-center">
+            <p class="text-blue-700 font-bold text-lg">กำลังจัดการข้อมูล</p>
+            <p class="text-slate-400 text-sm">กรุณารอสักครู่...</p>
+        </div>
+    </div>
+
+    <!-- Header Navigation -->
+    <header class="bg-blue-700 text-white sticky top-0 z-40 shadow-md">
+        <div class="max-w-6xl mx-auto px-4 h-16 flex justify-between items-center">
+            <div class="flex items-center space-x-3 cursor-pointer group" onclick="showView('dashboard')">
+                <div class="bg-white/20 p-2 rounded-xl backdrop-blur-md group-hover:bg-white group-hover:text-blue-700 transition-all">
+                    <i class="fa-solid fa-hospital-user text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-base font-bold leading-none">ระบบจองห้องพิเศษ</h1>
+                    <p class="text-[10px] text-blue-200 uppercase tracking-tighter">แผนกอายุรกรรม โรงพยาบาลเจ้าพระยาอภัยภูเบศร</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-2">
+                <button onclick="loadDataFromSheet()" class="p-2.5 hover:bg-white/10 rounded-full transition-colors" aria-label="Refresh">
+                    <i id="refresh-icon" class="fa-solid fa-arrows-rotate"></i>
+                </button>
+                <button onclick="showView('booking')" class="bg-emerald-500 hover:bg-emerald-600 px-4 py-2 rounded-xl text-xs font-bold shadow-lg shadow-emerald-900/20 transition-all flex items-center">
+                    <i class="fa-solid fa-plus mr-1.5"></i> จองห้อง
+                </button>
+                <button id="admin-btn-nav" onclick="openLoginModal()" class="bg-slate-800 hover:bg-slate-900 px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center">
+                    <i class="fa-solid fa-lock-open mr-1.5"></i> Admin
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto p-4 md:p-6 space-y-8">
+
+        <!-- DASHBOARD SECTION -->
+        <section id="view-dashboard" class="space-y-6 animate-slide-up">
+            <!-- Counter Grid -->
+            <div id="queue-counters" class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <!-- Skeleton Loader -->
+                <div class="h-24 bg-slate-200 animate-pulse rounded-2xl"></div>
+                <div class="h-24 bg-slate-200 animate-pulse rounded-2xl"></div>
+                <div class="h-24 bg-slate-200 animate-pulse rounded-2xl"></div>
+                <div class="h-24 bg-slate-200 animate-pulse rounded-2xl"></div>
+            </div>
+            
+            <div class="glass-card overflow-hidden border-none shadow-xl">
+                <div class="p-5 border-b border-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 bg-white/50 backdrop-blur-sm">
+                    <div class="flex items-center">
+                        <div class="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center mr-3">
+                            <i class="fa-solid fa-list-ul"></i>
+                        </div>
+                        <h2 class="font-bold text-slate-800">รายการรอรับเข้าวอร์ด (ภาพรวม)</h2>
+                    </div>
+                    <span id="last-update" class="text-[10px] text-slate-400 font-semibold px-3 py-1 bg-slate-100 rounded-full">ยังไม่ได้อัปเดต</span>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full responsive-table">
+                        <thead class="bg-slate-50 border-b border-slate-100">
+                            <tr class="text-[10px] text-slate-400 font-black uppercase tracking-widest">
+                                <th class="px-6 py-4 text-left">วันที่ต้องการ</th>
+                                <th class="px-6 py-4 text-left">ข้อมูลผู้ป่วย</th>
+                                <th class="px-6 py-4 text-left">วอร์ดต้นทาง</th>
+                                <th class="px-6 py-4 text-left">สถานะคิว</th>
+                                <th class="px-6 py-4 text-left">สิทธิ์การรักษา</th>
+                                <th class="px-6 py-4 text-left">หมายเหตุ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dashboard-table-body" class="divide-y divide-slate-50">
+                            <tr>
+                                <td colspan="6" class="p-20 text-center">
+                                    <div class="flex flex-col items-center opacity-20">
+                                        <i class="fa-solid fa-database text-5xl mb-4"></i>
+                                        <p class="font-bold">กำลังเชื่อมต่อข้อมูล...</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- BOOKING FORM SECTION -->
+        <section id="view-booking" class="hidden max-w-2xl mx-auto animate-slide-up">
+            <div class="glass-card p-6 md:p-10 border-none shadow-2xl relative overflow-hidden">
+                <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-500 to-emerald-500"></div>
+                
+                <div class="flex items-center justify-between mb-8">
+                    <div class="flex items-center">
+                        <button onclick="showView('dashboard')" class="w-10 h-10 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-blue-600 hover:text-white transition-all mr-4">
+                            <i class="fa-solid fa-chevron-left"></i>
+                        </button>
+                        <div>
+                            <h2 class="text-2xl font-black text-slate-800">จองห้องพิเศษ</h2>
+                            <p class="text-xs text-slate-400">กรุณาระบุข้อมูลผู้ป่วยให้ครบถ้วน</p>
+                        </div>
+                    </div>
+                </div>
+
+                <form id="bookingForm" class="space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="space-y-1.5">
+                            <label class="text-xs font-bold text-slate-500 ml-1 uppercase">วันที่จอง/วันที่ Admit (OPD)</label>
+                            <input type="date" id="bookingDate" required class="w-full p-4 rounded-2xl border border-slate-200 outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all bg-slate-50">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-xs font-bold text-slate-500 ml-1 uppercase">วอร์ดต้นทาง</label>
+                            <input list="wardList" id="currentWard" required placeholder="ค้นหาหรือพิมพ์ชื่อวอร์ด..." class="w-full p-4 rounded-2xl border border-slate-200 outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all bg-slate-50">
+                            <datalist id="wardList">
+                                <option value="6-MICU">6-MICU</option>
+                                <option value="6-CCU">6-CCU</option>
+                                <option value="6-ICCU">6-ICCU</option>
+                                <option value="5-อายุรกรรมชาย 1">5-อายุรกรรมชาย 1</option>
+                                <option value="5-อายุรกรรมชาย 2">5-อายุรกรรมชาย 2</option>
+                                <option value="5-พิเศษรวมอายุรกรรม">5-พิเศษรวมอายุรกรรม</option>
+                                <option value="5-พิเศษเดี่ยวอายุรกรรม ชั้น 5">5-พิเศษเดี่ยวอายุรกรรม ชั้น 5</option>
+                                <option value="4-อายุรกรรมหญิง 1">4-อายุรกรรมหญิง 1</option>
+                                <option value="4-อายุรกรรมหญิง 2">4-อายุรกรรมหญิง 2</option>
+                                <option value="4-ประสาทวิทยา">4-ประสาทวิทยา</option>
+                                <option value="4-พิเศษเดี่ยวอายุรกรรม ชั้น 4">4-พิเศษเดี่ยวอายุรกรรม ชั้น 4</option>
+                                <option value="3-หอผู้ป่วยแยกโรค">3-หอผู้ป่วยแยกโรค</option>
+                                <option value="3-RICU">3-RICU</option>
+                                <option value="ชีวารักษ์">ชีวารักษ์</option>
+                                <option value="พิเศษเดี่ยวธเนศวร">พิเศษเดี่ยวธเนศวร</option>
+                                <option value="OPD Case">OPD Case</option>
+                                <option value="แผนกอื่น ๆ (ลงชื่อวอร์ดช่องหมายเหตุ)">แผนกอื่น ๆ (ลงชื่อวอร์ดช่องหมายเหตุ)</option>
+                            </datalist>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="space-y-1.5">
+                            <label class="text-xs font-bold text-slate-500 ml-1 uppercase">เลข HN</label>
+                            <input type="text" id="hn" placeholder="ระบุเลข HN" required class="w-full p-4 rounded-2xl border border-slate-200 outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all bg-slate-50 font-mono tracking-wider">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-xs font-bold text-slate-500 ml-1 uppercase">ชื่อ-นามสกุล ผู้ป่วย</label>
+                            <input type="text" id="patientName" placeholder="ระบุชื่อ-นามสกุล" required class="w-full p-4 rounded-2xl border border-slate-200 outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all bg-slate-50">
+                        </div>
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label class="text-xs font-bold text-slate-500 ml-1 uppercase">สิทธิ์การรักษา</label>
+                        <select id="privilege" required class="w-full p-4 rounded-2xl border border-slate-200 outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all bg-slate-50 appearance-none">
+                            <option value="" disabled selected>เลือกสิทธิ์การรักษา...</option>
+                            <option value="ประกันสุขภาพถ้วนหน้า (บัตรทอง)">ประกันสุขภาพถ้วนหน้า (บัตรทอง)</option>
+                            <option value="ประกันสังคม รพ.เจ้าพระยาอภัยภูเบศร">ประกันสังคม รพ.เจ้าพระยาอภัยภูเบศร</option>
+                            <option value="ประกันสังคม ต่างเครือข่าย">ประกันสังคม ต่างเครือข่าย</option>
+                            <option value="เบิกจ่ายตรง/เบิกต้นสังกัด">เบิกจ่ายตรง/เบิกต้นสังกัด</option>
+                            <option value="ชำระเงินเอง">ชำระเงินเอง</option>
+                        </select>
+                    </div>
+
+                    <div class="space-y-3">
+                        <label class="text-xs font-bold text-slate-500 ml-1 uppercase">ประเภทห้องที่ต้องการ (เลือกได้หลายวอร์ด)</label>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <label class="group cursor-pointer">
+                                <input type="checkbox" name="targetWard" value="1" class="hidden peer">
+                                <div class="p-4 border-2 border-slate-100 rounded-2xl flex justify-between items-center peer-checked:border-blue-500 peer-checked:bg-blue-50 transition-all">
+                                    <span class="text-sm font-medium text-slate-600 group-hover:text-blue-600">พิเศษรวมอายุรกรรม</span>
+                                    <div class="w-6 h-6 rounded-full border-2 border-slate-200 peer-checked:bg-blue-500 peer-checked:border-blue-500 flex items-center justify-center text-white">
+                                        <i class="fa-solid fa-check text-[10px]"></i>
+                                    </div>
+                                </div>
+                            </label>
+                            <label class="group cursor-pointer">
+                                <input type="checkbox" name="targetWard" value="2" class="hidden peer">
+                                <div class="p-4 border-2 border-slate-100 rounded-2xl flex justify-between items-center peer-checked:border-pink-500 peer-checked:bg-pink-50 transition-all">
+                                    <span class="text-sm font-medium text-slate-600 group-hover:text-pink-600">พิเศษเดี่ยว ชั้น 5</span>
+                                    <div class="w-6 h-6 rounded-full border-2 border-slate-200 peer-checked:bg-pink-500 peer-checked:border-pink-500 flex items-center justify-center text-white">
+                                        <i class="fa-solid fa-check text-[10px]"></i>
+                                    </div>
+                                </div>
+                            </label>
+                            <label class="group cursor-pointer">
+                                <input type="checkbox" name="targetWard" value="4" class="hidden peer">
+                                <div class="p-4 border-2 border-slate-100 rounded-2xl flex justify-between items-center peer-checked:border-purple-500 peer-checked:bg-purple-50 transition-all">
+                                    <span class="text-sm font-medium text-slate-600 group-hover:text-purple-600">พิเศษเดี่ยว ชั้น 4</span>
+                                    <div class="w-6 h-6 rounded-full border-2 border-slate-200 peer-checked:bg-purple-500 peer-checked:border-purple-500 flex items-center justify-center text-white">
+                                        <i class="fa-solid fa-check text-[10px]"></i>
+                                    </div>
+                                </div>
+                            </label>
+                            <label class="group cursor-pointer">
+                                <input type="checkbox" name="targetWard" value="3" class="hidden peer">
+                                <div class="p-4 border-2 border-slate-100 rounded-2xl flex justify-between items-center peer-checked:border-amber-500 peer-checked:bg-amber-50 transition-all">
+                                    <span class="text-sm font-medium text-slate-600 group-hover:text-amber-600">พิเศษเดี่ยวธเนศวร</span>
+                                    <div class="w-6 h-6 rounded-full border-2 border-slate-200 peer-checked:bg-amber-500 peer-checked:border-amber-500 flex items-center justify-center text-white">
+                                        <i class="fa-solid fa-check text-[10px]"></i>
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label class="text-xs font-bold text-slate-500 ml-1 uppercase">หมายเหตุ (ถ้ามี)</label>
+                        <textarea id="note" rows="3" placeholder="- OPD Case เลือกวันที่ต้องการจองด้านบน ระบุหัตถการที่ทำในช่องนี้
+- ระบุ หากเป็นญาติเจ้าหน้าที่" class="w-full p-4 rounded-2xl border border-slate-200 outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all bg-slate-50"></textarea>
+                    </div>
+
+                    <button type="submit" class="w-full bg-blue-600 text-white font-black py-5 rounded-3xl shadow-xl shadow-blue-200 hover:bg-blue-700 hover:-translate-y-1 active:scale-95 transition-all text-lg">
+                        <i class="fa-solid fa-paper-plane mr-2"></i> ยืนยันข้อมูลการจอง
+                    </button>
+                </form>
+            </div>
+        </section>
+
+        <!-- ADMIN MANAGEMENT VIEW -->
+        <section id="view-admin" class="hidden space-y-6 animate-slide-up">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 rounded-3xl border-b-4 border-emerald-500 shadow-xl gap-4">
+                <div class="flex items-center">
+                    <div class="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mr-4 text-2xl">
+                        <i class="fa-solid fa-user-gear"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-black text-slate-800" id="admin-ward-title">หน้าจัดการหอผู้ป่วย</h2>
+                        <p class="text-[11px] text-emerald-600 font-bold uppercase flex items-center">
+                            <span class="w-2 h-2 bg-emerald-500 rounded-full animate-ping mr-2"></span>
+                            Online: กำลังแสดงรายการรอการตอบรับ
+                        </p>
+                    </div>
+                </div>
+                <button onclick="logoutAdmin()" class="w-full md:w-auto px-6 py-3 bg-rose-50 text-rose-600 font-black rounded-2xl border border-rose-100 hover:bg-rose-600 hover:text-white transition-all text-sm">
+                    <i class="fa-solid fa-right-from-bracket mr-2"></i> ออกจากระบบ
+                </button>
+            </div>
+            
+            <div id="admin-queue-list" class="grid grid-cols-1 gap-4">
+                <!-- Case Cards will be rendered here -->
+            </div>
+        </section>
+    </main>
+
+    <!-- UI COMPONENTS (Modals, Toasts) -->
+    
+    <!-- Login Modal -->
+    <div id="loginModal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4">
+        <div class="bg-white rounded-[2.5rem] p-8 md:p-12 w-full max-w-md shadow-2xl animate-slide-up">
+            <div class="text-center mb-10">
+                <div class="w-20 h-20 bg-blue-50 text-blue-600 rounded-3xl flex items-center justify-center mx-auto mb-4 text-3xl">
+                    <i class="fa-solid fa-shield-halved"></i>
+                </div>
+                <h3 class="text-2xl font-black text-slate-800">Admin Login</h3>
+                <p class="text-slate-400 text-sm">กรุณาเลือกวอร์ดและใส่รหัสผ่าน</p>
+            </div>
+            
+            <div class="space-y-4">
+                <div class="relative">
+                    <select id="loginWard" class="w-full p-5 rounded-2xl border-2 border-slate-50 outline-none focus:border-blue-500 bg-slate-50 font-bold appearance-none">
+                        <option value="1">ห้องพิเศษรวมอายุรกรรม</option>
+                        <option value="2">ห้องพิเศษเดี่ยวชั้น 5</option>
+                        <option value="4">ห้องพิเศษเดี่ยวชั้น 4</option>
+                        <option value="3">ห้องพิเศษเดี่ยวธเนศวร</option>
+                    </select>
+                    <div class="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                        <i class="fa-solid fa-chevron-down text-xs"></i>
+                    </div>
+                </div>
+                <input type="password" id="adminPass" placeholder="••••••••" class="w-full p-5 rounded-2xl border-2 border-slate-50 text-center outline-none focus:border-blue-500 bg-slate-50 text-2xl tracking-[0.5em]">
+                
+                <div class="flex gap-4 pt-4">
+                    <button onclick="closeLoginModal()" class="flex-1 py-5 text-slate-400 font-bold hover:text-slate-600 transition-colors">ยกเลิก</button>
+                    <button onclick="handleLogin()" class="flex-[1.5] bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-200 active:scale-95 transition-all">
+                        ยืนยันตัวตน
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reject Reason Modal -->
+    <div id="rejectModal" class="fixed inset-0 z-[110] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4">
+        <div class="bg-white rounded-[2rem] p-8 w-full max-w-sm shadow-2xl animate-slide-up">
+            <h3 class="text-xl font-black text-slate-800 mb-2">ระบุเหตุผลการปฏิเสธ</h3>
+            <p class="text-xs text-slate-400 mb-6 uppercase tracking-wider font-bold">Rejection Reason Required</p>
+            
+            <input type="hidden" id="rejectBookingId">
+            <textarea id="rejectReason" rows="3" placeholder="ระบุเหตุผล เช่น วอร์ดเต็ม, คนไข้เปลี่ยนใจ..." class="w-full p-5 rounded-2xl border border-slate-200 outline-none focus:ring-4 focus:ring-rose-500/10 focus:border-rose-500 bg-slate-50 text-sm mb-6"></textarea>
+            
+            <div class="flex gap-3">
+                <button onclick="closeRejectModal()" class="flex-1 py-4 text-slate-400 font-bold text-sm">ยกเลิก</button>
+                <button onclick="confirmReject()" class="flex-[1.5] bg-rose-600 text-white rounded-2xl font-black text-sm shadow-lg shadow-rose-200 active:scale-95 transition-all">
+                    ยืนยันปฏิเสธเคส
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Toast Notification -->
+    <div id="toastBox" class="fixed bottom-10 left-1/2 -translate-x-1/2 z-[200] hidden">
+        <div id="toastContent" class="flex items-center px-6 py-4 rounded-full shadow-2xl animate-slide-up min-w-[280px]">
+            <i id="toastIcon" class="mr-3 text-lg"></i>
+            <span id="toastText" class="font-bold text-sm">ข้อความแจ้งเตือน</span>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * Configuration & Constants
+         */
+        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxgQjuEJy7aEqCUX2FC3wNtjcRANfsXWcTb8KIu-baGUh0iN1yTF9msOWWgM_0Z8YTC/exec"; 
+
+        const WARD_NAMES = { 
+            "1": "ห้องพิเศษรวมอายุรกรรม", 
+            "2": "ห้องพิเศษเดี่ยวชั้น 5", 
+            "3": "ห้องพิเศษเดี่ยวธเนศวร",
+            "4": "พิเศษเดี่ยวอายุรกรรม ชั้น 4" 
+        };
+
+        const ADMIN_KEYS = { 
+            "1": "PP01234", 
+            "2": "PP51234", 
+            "3": "PM1234",
+            "4": "PP41234" 
+        };
+
+        /**
+         * State Management
+         */
+        let state = {
+            bookings: [],
+            currentAdminWard: null,
+            isRefreshing: false
+        };
+
+        /**
+         * Initialization
+         */
+        window.onload = () => {
+            setupInitialUI();
+            loadDataFromSheet();
+        };
+
+        function setupInitialUI() {
+            // Set min date for booking to today
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('bookingDate').setAttribute('min', today);
+        }
+
+        /**
+         * UI Logic
+         */
+        function setLoader(show) { 
+            document.getElementById('loader').classList.toggle('hidden', !show); 
+        }
+
+        function showToast(text, type = 'success') {
+            const toast = document.getElementById('toastBox');
+            const content = document.getElementById('toastContent');
+            const icon = document.getElementById('toastIcon');
+            const txt = document.getElementById('toastText');
+
+            txt.innerText = text;
+            toast.classList.remove('hidden');
+
+            if (type === 'success') {
+                content.className = "flex items-center px-6 py-4 rounded-full shadow-2xl bg-slate-900 text-emerald-400 border border-emerald-400/30";
+                icon.className = "fa-solid fa-circle-check";
+            } else {
+                content.className = "flex items-center px-6 py-4 rounded-full shadow-2xl bg-slate-900 text-rose-400 border border-rose-400/30";
+                icon.className = "fa-solid fa-triangle-exclamation";
+            }
+
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 3500);
+        }
+
+        function showView(viewName) {
+            const views = ['dashboard', 'booking', 'admin'];
+            views.forEach(v => {
+                const el = document.getElementById(`view-${v}`);
+                if (el) el.classList.add('hidden');
+            });
+            document.getElementById(`view-${viewName}`).classList.remove('hidden');
+            
+            // Toggle Admin Access Button visibility
+            const adminNavBtn = document.getElementById('admin-btn-nav');
+            if (state.currentAdminWard) {
+                adminNavBtn.classList.add('hidden');
+            } else {
+                adminNavBtn.classList.remove('hidden');
+            }
+            
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        /**
+         * Data Operations
+         */
+        async function loadDataFromSheet() {
+            if (state.isRefreshing) return;
+            
+            const icon = document.getElementById('refresh-icon');
+            state.isRefreshing = true;
+            icon.classList.add('fa-spin', 'text-blue-200');
+
+            try {
+                const response = await fetch(`${SCRIPT_URL}?t=${Date.now()}`);
+                if (!response.ok) throw new Error("Network response error");
+                
+                state.bookings = await response.json();
+                
+                renderDashboard();
+                if (state.currentAdminWard) renderAdminView();
+                
+                updateLastRefreshTime();
+            } catch (err) {
+                console.error("Load Error:", err);
+                showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", "error");
+            } finally {
+                state.isRefreshing = false;
+                icon.classList.remove('fa-spin', 'text-blue-200');
+            }
+        }
+
+        function updateLastRefreshTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+            document.getElementById('last-update').innerText = "อัปเดตเมื่อ: " + timeStr + " น.";
+        }
+
+        /**
+         * Dashboard Rendering
+         */
+        function renderDashboard() {
+            const pending = state.bookings.filter(b => b.status === 'Pending');
+            const wardIds = ["1", "2", "4", "3"];
+            
+            // Render Counters
+            const countersEl = document.getElementById('queue-counters');
+            countersEl.innerHTML = wardIds.map(wid => {
+                const count = pending.filter(b => 
+                    b.targetWards && b.targetWards.includes(wid) && 
+                    (!b.rejectedBy || !b.rejectedBy.includes(WARD_NAMES[wid]))
+                ).length;
+                
+                const colors = {
+                    "1": "blue", "2": "pink", "4": "purple", "3": "amber"
+                };
+                const color = colors[wid] || "slate";
+
+                return `
+                    <div class="glass-card p-5 border-l-8 border-${color}-500 bg-white hover:scale-105 transition-transform cursor-default">
+                        <p class="text-[10px] text-slate-400 font-black uppercase mb-1 truncate">${WARD_NAMES[wid]}</p>
+                        <div class="flex items-baseline space-x-1">
+                            <span class="text-3xl font-black text-slate-800">${count}</span>
+                            <span class="text-[10px] text-slate-400 font-bold uppercase">Case</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            // Render Table
+            const tbody = document.getElementById('dashboard-table-body');
+            const sorted = pending.sort((a,b) => new Date(a.bookingDate) - new Date(b.bookingDate));
+
+            if(sorted.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="p-20 text-center text-slate-300 italic font-medium">ไม่มีรายการคิวที่รอจัดสรรในขณะนี้</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = sorted.map(b => `
+                <tr class="hover:bg-blue-50/40 transition-colors group">
+                    <td class="px-6 py-5" data-label="วันที่ต้องการ">
+                        <div class="text-xs font-bold text-slate-700">${b.bookingDate}</div>
+                        ${b.lastUpdate ? `<div class="text-[9px] text-emerald-500 font-bold mt-0.5"><i class="fa-solid fa-clock-rotate-left"></i> ${b.lastUpdate}</div>` : ""}
+                    </td>
+                    <td class="px-6 py-5" data-label="ข้อมูลผู้ป่วย">
+                        <div class="text-xs font-black text-blue-700 font-mono tracking-tight underline decoration-blue-200">${b.hn}</div>
+                        <div class="text-xs text-slate-800 font-bold mt-0.5">${b.patientName}</div>
+                    </td>
+                    <td class="px-6 py-5" data-label="วอร์ดต้นทาง">
+                        <span class="text-[10px] bg-slate-100 px-2 py-1 rounded-lg font-black text-slate-500">${b.currentWard}</span>
+                    </td>
+                    <td class="px-6 py-5" data-label="สถานะคิว">
+                        <div class="flex items-center text-blue-600 font-black text-[11px] uppercase italic">
+                            <i class="fa-solid fa-circle-nodes animate-pulse mr-2"></i> Waiting
+                        </div>
+                        <div class="text-[9px] text-slate-400 font-medium">รอวอร์ดปลายทางตอบรับ</div>
+                    </td>
+                    <td class="px-6 py-5 text-[11px] text-slate-600 font-medium" data-label="สิทธิ์">${b.privilege}</td>
+                    <td class="px-6 py-5" data-label="หมายเหตุ">
+                        <div class="text-[11px] text-slate-400 italic max-w-[150px] truncate group-hover:whitespace-normal group-hover:overflow-visible transition-all">${b.note || '-'}</div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        /**
+         * Form Submission
+         */
+        document.getElementById('bookingForm').onsubmit = async (e) => {
+            e.preventDefault();
+            
+            const targetWards = Array.from(document.querySelectorAll('input[name="targetWard"]:checked')).map(el => el.value);
+            
+            if (targetWards.length === 0) {
+                return showToast("กรุณาเลือกอย่างน้อย 1 วอร์ดที่ต้องการจอง", "error");
+            }
+
+            setLoader(true);
+            
+            const payload = {
+                action: 'addBooking',
+                id: 'BK-' + Date.now() + Math.floor(Math.random() * 1000),
+                createdAt: new Date().toLocaleString('th-TH'),
+                bookingDate: document.getElementById('bookingDate').value,
+                currentWard: document.getElementById('currentWard').value,
+                hn: document.getElementById('hn').value,
+                patientName: document.getElementById('patientName').value,
+                privilege: document.getElementById('privilege').value,
+                targetWards: targetWards,
+                note: document.getElementById('note').value || '-',
+                status: 'Pending'
+            };
+
+            try {
+                const response = await fetch(SCRIPT_URL, { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: JSON.stringify(payload) 
+                });
+
+                if (response.ok) {
+                    showToast("ส่งข้อมูลการจองสำเร็จ");
+                    e.target.reset();
+                    await loadDataFromSheet();
+                    showView('dashboard');
+                } else {
+                    throw new Error("Submit failed");
+                }
+            } catch (err) {
+                showToast("เกิดข้อผิดพลาดในการบันทึก", "error");
+            } finally {
+                setLoader(false);
+            }
+        };
+
+        /**
+         * Authentication Logic
+         */
+        function openLoginModal() { document.getElementById('loginModal').classList.remove('hidden'); }
+        function closeLoginModal() { document.getElementById('loginModal').classList.add('hidden'); }
+        
+        function handleLogin() {
+            const ward = document.getElementById('loginWard').value;
+            const pass = document.getElementById('adminPass').value;
+
+            if (pass === ADMIN_KEYS[ward]) {
+                state.currentAdminWard = ward;
+                closeLoginModal();
+                showView('admin');
+                renderAdminView();
+                document.getElementById('adminPass').value = "";
+                showToast(`เข้าสู่ระบบวอร์ด ${WARD_NAMES[ward]} สำเร็จ`);
+            } else {
+                showToast("รหัสผ่านไม่ถูกต้อง", "error");
+            }
+        }
+        
+        function logoutAdmin() { 
+            state.currentAdminWard = null; 
+            showView('dashboard'); 
+            showToast("ออกจากระบบแล้ว");
+        }
+
+        /**
+         * Admin View Rendering
+         */
+        function renderAdminView() {
+            if(!state.currentAdminWard) return;
+            
+            document.getElementById('admin-ward-title').innerText = "ห้อง: " + WARD_NAMES[state.currentAdminWard];
+            const listContainer = document.getElementById('admin-queue-list');
+            
+            const filtered = state.bookings.filter(b => {
+                const isPending = b.status === 'Pending';
+                const isTarget = b.targetWards && b.targetWards.includes(state.currentAdminWard);
+                const notRejected = !b.rejectedBy || !b.rejectedBy.includes(WARD_NAMES[state.currentAdminWard]);
+                return isPending && isTarget && notRejected;
+            }).sort((a,b) => new Date(a.bookingDate) - new Date(b.bookingDate));
+
+            if(filtered.length === 0) {
+                listContainer.innerHTML = `
+                    <div class="p-20 text-center glass-card border-none bg-white/50 backdrop-blur-sm">
+                        <i class="fa-solid fa-mug-hot text-4xl text-slate-200 mb-4 block"></i>
+                        <p class="text-slate-400 font-bold italic">ขณะนี้ไม่มีรายการจองใหม่สำหรับวอร์ดของคุณ</p>
+                    </div>`;
+                return;
+            }
+
+            listContainer.innerHTML = filtered.map(b => `
+                <div class="glass-card p-6 flex flex-col lg:flex-row justify-between lg:items-center gap-6 animate-slide-up border-none shadow-lg">
+                    <div class="flex-1 space-y-2">
+                        <div class="flex items-center space-x-2">
+                            <span class="px-2 py-1 bg-blue-100 text-blue-700 text-[10px] font-black rounded uppercase">HN: ${b.hn}</span>
+                            <span class="px-2 py-1 bg-emerald-100 text-emerald-700 text-[10px] font-black rounded uppercase">Admit: ${b.bookingDate}</span>
+                        </div>
+                        <h3 class="text-xl font-black text-slate-800">${b.patientName}</h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-xs text-slate-500 font-bold">
+                            <p><i class="fa-solid fa-map-location-dot mr-1.5 opacity-50"></i> ต้นทาง: ${b.currentWard}</p>
+                            <p><i class="fa-solid fa-id-card mr-1.5 opacity-50"></i> สิทธิ์: ${b.privilege}</p>
+                        </div>
+                        ${b.note && b.note !== '-' ? `
+                        <div class="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 text-[11px] text-slate-500 leading-relaxed italic">
+                            <span class="font-black text-slate-400 uppercase mr-2 text-[9px] not-italic">Note:</span> ${b.note}
+                        </div>` : ''}
+                    </div>
+                    <div class="flex flex-row sm:flex-nowrap gap-3 shrink-0">
+                        <button onclick="approveBooking('${b.id}')" class="flex-1 px-8 py-4 bg-emerald-600 text-white rounded-2xl font-black text-sm shadow-lg shadow-emerald-200 hover:bg-emerald-700 active:scale-95 transition-all">
+                            <i class="fa-solid fa-user-check mr-2"></i> รับเข้า
+                        </button>
+                        <button onclick="openRejectModal('${b.id}')" class="flex-1 px-8 py-4 bg-white text-rose-600 border-2 border-rose-100 rounded-2xl font-black text-sm hover:bg-rose-50 active:scale-95 transition-all">
+                            <i class="fa-solid fa-user-xmark mr-2"></i> ปฏิเสธ
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        /**
+         * Admin Action - Approve
+         */
+        async function approveBooking(id) {
+            setLoader(true);
+            try {
+                const response = await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: JSON.stringify({ 
+                        action: 'approveBooking', 
+                        id: id, 
+                        approvedWard: WARD_NAMES[state.currentAdminWard],
+                        lastUpdate: new Date().toLocaleString('th-TH')
+                    })
+                });
+                
+                if(response.ok) {
+                    showToast("รับคนไข้เข้าวอร์ดสำเร็จ");
+                    await loadDataFromSheet();
+                } else throw new Error();
+            } catch (err) {
+                showToast("ไม่สามารถทำรายการได้", "error");
+            } finally {
+                setLoader(false);
+            }
+        }
+
+        /**
+         * Admin Action - Reject
+         */
+        function openRejectModal(id) {
+            document.getElementById('rejectBookingId').value = id;
+            document.getElementById('rejectReason').value = '';
+            document.getElementById('rejectModal').classList.remove('hidden');
+        }
+
+        function closeRejectModal() { document.getElementById('rejectModal').classList.add('hidden'); }
+
+        async function confirmReject() {
+            const id = document.getElementById('rejectBookingId').value;
+            const reason = document.getElementById('rejectReason').value.trim();
+            
+            if(!reason) {
+                return showToast("กรุณาระบุเหตุผลการปฏิเสธ", "error");
+            }
+
+            setLoader(true);
+            try {
+                const response = await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: JSON.stringify({ 
+                        action: 'rejectBooking', 
+                        id: id, 
+                        rejectedWard: WARD_NAMES[state.currentAdminWard], 
+                        reason: reason,
+                        lastUpdate: new Date().toLocaleString('th-TH')
+                    })
+                });
+                
+                if(response.ok) {
+                    showToast("ปฏิเสธการรับเข้าเรียบร้อย");
+                    closeRejectModal();
+                    await loadDataFromSheet();
+                } else throw new Error();
+            } catch (err) {
+                showToast("ไม่สามารถส่งข้อมูลได้", "error");
+            } finally {
+                setLoader(false);
+            }
+        }
+    </script>
+</body>
+</html>
